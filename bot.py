@@ -20,14 +20,14 @@ class Bot:
         self.bot_longpoll = VkBotLongPoll(vk_api.VkApi(token=group_token), group_id) #лонгполл Бота для перехвата VkBotEventType
         self.longpoll = VkLongPoll(vk_api.VkApi(token=group_token)) #лонгполл для перехвата VkEventType
         self.vk_api = vk_api.VkApi(token=group_token).get_api() #API с токеном группы, для методов "ключом доступа группы".
-
+        self.profiles = []
 
     def start_db(self): # создаем сессию БД
         with psycopg2.connect(database=config['pgbase'], user="postgres", password=config['pgpwd']) as conn:
             return conn
 
 
-    def check_db(self, user): #проверяем сессию БД
+    def _check_db(self, user): #проверяем сессию БД
         try:
             conn = self.start_db() 
             check = db.db_check(conn) #чекаем работает ли БД, есть ли нужные таблицы
@@ -55,13 +55,13 @@ class Bot:
             self.message_send(user, '⛔ Проблемы инициализации пользователя. Проверьте настроки access_token пользователя.')
         else:
             user.update(userdata)
-            print('Из инишиал', user) #delete
+            # print('Из инишиал', user) #delete
             user.pop('is_closed')
             user.pop('can_access_closed')
             userdata_check = True
             while userdata_check:
                 userdata_check, user= self.supplement_userdata(user)
-                print(userdata_check, user)  #delete
+                # print(userdata_check, user)  #delete
             self.message_send(user, '✅ В "Настройках поиска" можете изменить параметры поиска.')
 
 
@@ -84,17 +84,17 @@ class Bot:
                             new_value = event.text.capitalize()
                             break
             elif item == 'city':
-                    self.message_send(obj, f'уточните id города: ')
-                    for event in longpoll.listen():
-                        if event.type == VkEventType.MESSAGE_NEW:
-                            if event.to_me:
-                                try:
-                                    city_id = int(event.text)
-                                except:
-                                    self.message_send(obj, f'Вы ввели недопустимые символы. Можно вводить только цифры')
-                                finally:
-                                    break
-                    new_value = {'id': city_id}
+                self.message_send(obj, f'уточните id города: ')
+                for event in longpoll.listen():
+                    if event.type == VkEventType.MESSAGE_NEW:
+                        if event.to_me:
+                            try:
+                                city_id = int(event.text)
+                                new_value = {'id': city_id}
+                            except:
+                                self.message_send(obj, f'Вы ввели недопустимые символы. Можно вводить только цифры')
+                            finally:
+                                break                
             elif item == 'relation':
                 self.message_send(obj, f"""уточните тип отношений:
                                             (для справки. введите соответствующую цифру
@@ -144,7 +144,28 @@ class Bot:
                                 self.message_send(obj, f'Вы ввели недопустимые символы. Следуйте подсказке.')
                             finally:
                                 break
-            
+            elif item == 'age_from':
+                self.message_send(obj, f'не моложе скольки лет должен быть кандидат: ')
+                for event in longpoll.listen():
+                    if event.type == VkEventType.MESSAGE_NEW:
+                        if event.to_me:
+                            try:
+                                new_value = int(event.text)
+                            except:
+                                self.message_send(obj, f'Вы ввели недопустимые символы. Можно вводить только цифры')
+                            finally:
+                                break
+            elif item == 'age_to':
+                self.message_send(obj, f'не старше скольки лет должен быть кандидат: ')
+                for event in longpoll.listen():
+                    if event.type == VkEventType.MESSAGE_NEW:
+                        if event.to_me:
+                            try:
+                                new_value = int(event.text)
+                            except:
+                                self.message_send(obj, f'Вы ввели недопустимые символы. Можно вводить только цифры')
+                            finally:
+                                break
             if new_value != None:
                 new_value = {item : new_value}
                 obj.update(new_value)
@@ -153,12 +174,14 @@ class Bot:
 
     def supplement_userdata(self, user): # запрашиваем уточнения, если данных из профиля нехватает
         need_to_supplement = True
+        msg = "Для начала работы не хватает данных. Пожалуйста,"
         while need_to_supplement:
-            checklist = ['id', 'city', 'relation', 'sex', 'first_name', 'last_name', 'bdate']
+            checklist = ['id', 'city', 'relation', 'sex', 'first_name', 'last_name', 'bdate', 'age_from', 'age_to']
             to_supplement = list(filter(lambda it: it not in list(user), checklist))
             print('to_supplement:', to_supplement) #delete
             if len(to_supplement) > 0:
-                self.message_send(user, f"Не хватает данных для поиска. Пожалуйста,")
+                self.message_send(user, msg)
+                msg = "Вы где-то ошиблись... Давайте повторим. Сердечно прошу Вас быть внимательнее :). Пожалуйста,"
                 self._supplement(to_supplement, user)
             else:
                 need_to_supplement = False
@@ -169,6 +192,11 @@ class Bot:
         user = dict()
         just_begin = True # для отправки клавиатуры и операций под капотом
         for event in self.bot_longpoll.listen():
+
+            if event.type == 'like_add':
+                print(" ❤ пользователь поставил лайк", event)
+            if event.type == 'like_remove':
+                print(" 💔 пользователь убрал лайк", event)
             if event.type == VkBotEventType.MESSAGE_EVENT: #действия при нажатии кнопки
                 event_id = event.object.event_id,
                 user_id = event.object.user_id,
@@ -181,7 +209,7 @@ class Bot:
                     peer_id=peer_id,
                     event_data=event_data)
                 value = {'id': list(user_id)[0]}
-                user.update(value)
+                # user.update(value)
                 print('MESSAGE_EVENT:', user) #delete
                 if func in self.ex:
                     self.ex[func](self, user)
@@ -192,11 +220,14 @@ class Bot:
                     just_begin = False
                     value = {'id': event.obj['from_id']}
                     user.update(value)
-                    print('MESSAGE_TYPING_STATE:', user) #delete
-                    checkbd = self.check_db(user)
+                    # print('MESSAGE_TYPING_STATE:', user) #delete
+                    checkbd = self._check_db(user)
                     if checkbd != 'error':
                         self.initial(user)
-                    self.keyboard_send(user, f"Приложение для поиска пары V-К-i-n-d-е-r готово к работе!")
+                        conn = self.start_db()
+                        self.profiles = manage.get_ready_to_search(conn, user, self.vku_api)
+                        conn.close()
+                        self.keyboard_send(user, f"Приложение для поиска пары V-К-i-n-d-е-r готово к работе!")
 
 
     def keyboard_send(self, user, msg, switch=True):
@@ -220,19 +251,24 @@ class Bot:
         ), keyboard=keyboard.get_empty_keyboard())
 
 
-    def message_send(self, user, msg):
-        self.vk_api.messages.send(
-            user_id=user['id'], message=msg,  random_id=get_random_id())
+    def message_send(self, user, msg, attachment=None):
+        if attachment == None:
+            self.vk_api.messages.send(user_id=user['id'], message=msg,  random_id=get_random_id())
+        else:
+            try:
+                self.vk_api.messages.send(user_id=user['id'], message=msg,  random_id=get_random_id(), attachment=attachment)
+            except:
+                self.vk_api.messages.send(user_id=user['id'], message="у нас тут какая-то ошибка...",  random_id=get_random_id())
 
 
     def stop(self, user):  # закрываем сессию подключения к БД
-        # with self.start_db() as conn:
-        #   try:
-        #       db.del_temp_list(conn, user_id)
-        #       print('-очистили темп_лист')
-        #   except:
-        #       pass
-        self.keyboard_send(user, "⛔ Бот остановлен", switch=False)
+        with self.start_db() as conn:
+          try:
+              db.del_temp_list(conn, user['id'])
+              print('-очистили темп_лист')
+          except:
+              pass
+        self.keyboard_send(user, "⛔ Бот остановлен. Заходите ещё! 🤗", switch=False)
 
 
     def settings(self, user):  # установка настроек поиска
@@ -253,16 +289,25 @@ class Bot:
 
 
     def search(self, user):
+        # self.profiles = db.get_profiles(conn, user['id'])
         with self.start_db() as conn:
-            string = ''
-            # top3 = manage.get_top3(conn, user_id, self.vk_session)
-            # for top in top3:
-            #     string += f'\n{top}'
-            self.message_send(user, f"""✅ Вот такой получился результат:{string}""")
-        
+            person = manage.get_top3_photo(conn, self.profiles, self.vku_api, user['id'])
+            print(type(self.profiles))
+            print(person)
+            url = person[0]['id']
+            attachment = tuple("photo"+str(url)+"_"+str(photo) for photo in person[1:4])
+            url = "http://vk.com/id"+str(url)
+            self.message_send(user, f"""✅ Оцените:
+            {person[0]['name']}
+            {url}
+            """, attachment)
+            db.add_results(conn, user['id'], person)
+            self.profiles = db.make_temp_list(conn, user['id'], self.profiles)
+            print(self.profiles)
+
 
     ex = {
-        'Проверка настроек и подключения': check_db,
+        'Проверка настроек и подключения': _check_db,
         'Останавливаем бота': stop,
         'Открываем настройки': settings,
         'Ищем пару': search

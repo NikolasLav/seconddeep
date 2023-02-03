@@ -39,113 +39,93 @@ def get_user_info(id, vk): #получение данных о пользова�
         return None
 
 
-def get_ready_to_search(conn, vk_session, user_id): #подготовка к поисковому запросу
+def get_ready_to_search(conn, user, vk): #подготовка к поисковому запросу
     start_time = datetime.datetime.today()
     print('-начало запроса', start_time) #delete
-    vk = vk_session.get_api()
     # db.del_temp_list(conn, user_id)
     quantity = 1000 #максимальная выдача
-    repeat_search = True
-    while repeat_search:
-        profiles = _get_search(vk, user_id, quantity)
-        print(f'-в текущем запросе users.search найдено {len(profiles)} анкеты (из возможных {quantity})') #delete
-        if len(profiles) == quantity: #если вернулось столько же анкет, сколько в макс. выдаче, значит есть ещё кандидаты. Нужно повторить поиск
-            repeat_search = True
-        else:
-            repeat_search = False
-        # db.make_temp_list(conn, user_id, profiles) 
-        # items = []
-        # req_in_sec = 0
-        # start_time = datetime.datetime.today() 
-        # print(f'-с учетом настроек отсеяно {len(profiles)} анкеты') #delete
+    profiles = _get_search(conn, vk, user, quantity)
+    print(f'-в текущем запросе users.search найдено {len(profiles)} анкеты (из возможных {quantity})') #delete
+    return profiles #delete
 
 
-        # for element in range(len(profiles)):
-        #     if (element != 0) and (element % 1000 == 0): #execute для фото работает пока и при 1000 запросов одновременно
-        #         profile_photos = _get_rate_user(vk_session, items)
-        #         db.rate_temp_list(conn, user_id, profile_photos)
-        #         req_in_sec += 1
-        #         items = [list(profiles)[element][1]]
-        #         print(f'-запрос №{req_in_sec} : в запросе {len(profile_photos)} анкет.') #delete
-        #         if req_in_sec % 3 == 0:
-        #             end_time = datetime.datetime.today()
-        #             print('-секунд затрачено на 3 запроса:', (end_time-start_time).seconds) #delete
-        #             print('-отсечка', end_time) #delete
-        #             while (end_time-start_time).seconds == 0:
-        #                 time.sleep(0.1) #возможно не нужна?
-        #                 print('--поспим (понять, нужна ли пауза)') #delete
-        #                 end_time = datetime.datetime.today()
-        #             start_time = datetime.datetime.today()
-        #             print('-начало запроса', start_time) #delete
-        #     else:
-        #         items.append(list(profiles)[element][1])
-        # if len(items) != 0: #если что-то осталось для запроса...
-        #     profile_photos = _get_rate_user(vk_session, items)
-        #     print(f'-запрос №{req_in_sec+1} : в запросе {len(profile_photos)} анкет.') #delete
-        #     db.rate_temp_list(conn, 31687273, profile_photos)
-        #     end_time = datetime.datetime.today()
-        #     print('-затрачено', end_time-start_time) #delete
-        #     print('конец', end_time) #delete
-
-
-    db.change_settings(conn, user_id, last_search=start_time)
-
-
-def _get_search(vk, user_id, quantity): #простой поиск, с ограничением до 1000 результатов в одной выдаче. без пересчёта запросов в секунду (обычно это не требуется, т.к. выдачи мало очень)
+def _get_search(conn, vk, user, quantity):
+    #простой поиск, с ограничением до 1000 результатов в одной выдаче. без пересчёта запросов в секунду (обычно это не требуется, т.к. выдачи мало очень)
     #можно организовать пулл реквест, чтобы сразу до 3000 в одной выдаче получать.
-    offset = 0
+    #добавить опцию дополнительного отсева? проверка города.
     profiles = []
-    search_settings = db.get_settings(conn, user_id) #параметры поиска
-    print('-search_settings', search_settings) #delete
-    if search_settings['sex'] == 1:
-        search_settings['sex'] = 2
-    elif search_settings['sex'] == 2:
-        search_settings['sex'] = 1
+    result = []
+    if user['sex'] == 1:
+        sex = 2
+    elif user['sex'] == 2:
+        sex = 1
+    else:
+        sex = 0
     quantity = 1000 #максимальное кол-во выдаваемых профилей.
-    repeat_search = True
-    while repeat_search:
-        request = vk.users.search(count=quantity, city_id=search_settings['city_id'], sex=search_settings['sex'], age_from=search_settings['age_from'], age_to=search_settings['age_to'], fields=("bdate", "city", "sex", "relation"))
+    check_results = db.get_results(conn, user_id=user['id']) #проверяем выдавался ли уже результат?
+    print('-check_results', check_results)
+    for age in range(user['age_from'],user['age_to']+1):
+        request = vk.users.search(count=quantity, city_id=user['city']['id'], sex=sex, age_from=age, age_to=age, fields=("bdate", "city", "relation"))
+        print(age)
         profiles += request['items']
-        if len(profiles) == quantity:
-            repeat_search = True
-            offset += quantity
-        else:
-            repeat_search = False
-    return profiles
+        print(len(profiles))
+        for profile in profiles:
+            try:
+                if profile['id'] not in check_results:
+                    if profile['city']['id'] == user['city']['id']:
+                        profile.pop('track_code')
+                        profile.pop('can_access_closed')
+                        profile.pop('is_closed')
+                        result += [profile]
+            except:
+                pass
+    return result
 
 
-def _get_top3_photos(vk, profile_id):
+def _get_top3_photos(vk, profile):
+    print(profile)
     try:
-        photos = vk.photos.get(owner_id=profile_id, album_id="profile", rev=1, extended=1)
+        photos = vk.photos.get(owner_id=profile['id'], album_id="profile", rev=1, extended=1)
         photos = photos['items']
+        if len(photos) < 3: #По условию три фото, значит берем только те, в которых три фото) //Гежин Олег
+            return None #анкета нам не подходит
         i = 0
         result = []
         for photo in photos:
             likes = photo['likes']['count']
             comments = photo['comments']['count']
             rate = likes + comments
-            result += [[rate, photo['sizes'][1]['url']]]
+            result += [[rate, photo['id']]]
         result.sort(reverse=True) #сортируем полученный список по убыванию суммы лайков и 
         photos = [] #нужен ещё один массив
         result = result[0:3]  #обрезаем до 3х фотографий
-        if len(result) < 3: #По условию три фото, значит берем только те, в которых три фото) //Гежин Олег
-            return None #анкета нам не подходит
         for photo in result:
-            photos += [photo[1]]         
-        return [profile_id, *photos]
+            photos += [photo[1]]
+        name = f"{profile['first_name']} {profile['last_name']}"
+        person = {'id': profile['id'], 'name': name}
+        return [person, *photos]
     except:
+        print('следущий except')
         return None #анкета нам не подходит (скорее всего это закрытая анкета)
 
 
-def get_top3_photo(conn, profile_id, vk_session=None):
-    check_profile = db.get_photos(conn, profile_id) #проверяем есть уже в базе? возможно другой пользователь уже запрашивал рейтинг данной анкеты
-    print(check_profile)
+def get_top3_photo(conn, profiles, vk, user_id):
+    for profile in profiles:
+        person = _get_top3_photos(vk, profile)
+        db.remove_from_temp(conn, user_id, profile['id'])
+        if person == None:
+            pass
+        else:
+            return person
+    
+    # print(check_profile)
     # with vk_api.VkRequestsPool(vk_session) as pool:
     #     for user in user_list:
     #         #добавляем в пулл запрос фото
     #         pass
     # #добавляем в кортеж userlist ссылку на профиль и фотографию.
     # return user_list
+    pass
 
 
 def _try_get_photos_from_db(conn, profile_id):
@@ -155,21 +135,20 @@ def _try_get_photos_from_db(conn, profile_id):
         pass
 
 
-with psycopg2.connect(database=config['pgbase'], user="postgres", password=config['pgpwd']) as conn:
-    # get_ready_to_search(conn, vk_session, 31687273, vk)
-    pass
 
+# user_token = config['user_token']
+# group_token = config['group_token']
+# group_id = config['group_id']
 
-user_token = config['user_token']
-group_token = config['group_token']
-group_id = config['group_id']
+# vk_session = vk_api.VkApi(token=user_token, api_version='5.131')
+# vk = vk_session.get_api() #сессия ВК
+# # lis = _get_top3_photos(vk_session, 31687273)
+# # print(lis)
+# # get_top3_photo(conn, 0)
 
-vk_session = vk_api.VkApi(token=user_token, api_version='5.131')
-vk = vk_session.get_api() #сессия ВК
-# lis = _get_top3_photos(vk_session, 31687273)
-# print(lis)
-# get_top3_photo(conn, 0)
-
+# with psycopg2.connect(database=config['pgbase'], user="postgres", password=config['pgpwd']) as conn:
+#     get_ready_to_search(conn, vk_session, 31687273)
+#     pass
 
 
 #442068022 м
