@@ -80,6 +80,7 @@ def add_results(conn, user_id, profile): #список профилей не д�
 
 
 def remove_from_temp(conn, user_id, profile_id): #список профилей не должен быть пустым! проверить перед отправкой
+    #добавить возможность удаления пачками
     with conn.cursor() as cur:
         cur.execute(f"DELETE FROM temp_list WHERE profile_id = {profile_id} AND user_id = {user_id};")
     conn.commit()
@@ -103,22 +104,25 @@ def make_temp_list(conn, user_id, profiles):
         except:
             bdate = None
         try: 
+            city_id = profile['city']['id']
+        except:
+            city_id = None
+        try: 
             relation = profile['relation']
         except:
             relation = 0
         with conn.cursor() as cur:
             cur.execute("""
-            INSERT INTO temp_list (user_id, profile_id, first_name, last_name, bdate, relation)
-            VALUES (%s, %s, %s, %s, %s, %s);
-            """, (user_id, profile['id'], profile['first_name'], profile['last_name'], bdate, relation))
+            INSERT INTO temp_list (user_id, profile_id, first_name, last_name, bdate, city_id, relation)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """, (user_id, profile['id'], profile['first_name'], profile['last_name'], bdate, city_id, relation))
     conn.commit()
     with conn.cursor() as cur:
         cur.execute(f"SELECT * FROM temp_list WHERE user_id = {user_id}")
         profiles = cur.fetchall()
-    return profiles
 
 
-def del_temp_list(conn, user_id):
+def clear_temp(conn, user_id):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM temp_list WHERE user_id = %s;", (user_id,)) #очистка таблицы 
     conn.commit()
@@ -141,13 +145,16 @@ def get_results(conn, profile_id=None, user_id=None):
     
 
 def get_profiles(conn, user_id):
-    pass
-
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT * FROM temp_list WHERE user_id = {user_id} LIMIT 1;")
+        result = cur.fetchone()
+    return result
 
 with psycopg2.connect(database="test", user="postgres", password="+") as conn:
     # drop_db(conn)
     # create_db(conn)
-    print(get_results(conn, profile_id=None, user_id=31687273))
+    # print(get_profiles(conn, 31687273))
+
 
     pass
 conn.close()

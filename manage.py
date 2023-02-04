@@ -52,7 +52,7 @@ def get_ready_to_search(conn, user, vk): #подготовка к поисков
 def _get_search(conn, vk, user, quantity):
     #простой поиск, с ограничением до 1000 результатов в одной выдаче. без пересчёта запросов в секунду (обычно это не требуется, т.к. выдачи мало очень)
     #можно организовать пулл реквест, чтобы сразу до 3000 в одной выдаче получать.
-    #добавить опцию дополнительного отсева? проверка города.
+    #добавить/убрать опцию дополнительного отсева? проверка города.
     profiles = []
     result = []
     if user['sex'] == 1:
@@ -64,26 +64,24 @@ def _get_search(conn, vk, user, quantity):
     quantity = 1000 #максимальное кол-во выдаваемых профилей.
     check_results = db.get_results(conn, user_id=user['id']) #проверяем выдавался ли уже результат?
     print('-check_results', check_results)
-    for age in range(user['age_from'],user['age_to']+1):
-        request = vk.users.search(count=quantity, city_id=user['city']['id'], sex=sex, age_from=age, age_to=age, fields=("bdate", "city", "relation"))
-        print(age)
-        profiles += request['items']
-        print(len(profiles))
-        for profile in profiles:
-            try:
-                if profile['id'] not in check_results:
-                    if profile['city']['id'] == user['city']['id']:
-                        profile.pop('track_code')
-                        profile.pop('can_access_closed')
-                        profile.pop('is_closed')
-                        result += [profile]
-            except:
-                pass
+    request = vk.users.search(count=quantity, city_id=user['city']['id'], sex=sex, age_from=user['age_from'], age_to=user['age_to'], fields=("bdate", "city", "relation"))
+    profiles += request['items']
+    print('- users.search result:', len(profiles))
+    for profile in profiles:
+        try:
+            if profile['id'] not in check_results:
+                if profile['city']['id'] == user['city']['id']:
+                    profile.pop('track_code')
+                    profile.pop('can_access_closed')
+                    profile.pop('is_closed')
+                    result += [profile]
+        except:
+            pass
+    db.make_temp_list(conn, user['id'], result)
     return result
 
 
 def _get_top3_photos(vk, profile):
-    print(profile)
     try:
         photos = vk.photos.get(owner_id=profile['id'], album_id="profile", rev=1, extended=1)
         photos = photos['items']
@@ -105,19 +103,28 @@ def _get_top3_photos(vk, profile):
         person = {'id': profile['id'], 'name': name}
         return [person, *photos]
     except:
-        print('следущий except')
+        print(f"-следущий except, {profile['id']} не подходит")
         return None #анкета нам не подходит (скорее всего это закрытая анкета)
 
 
-def get_top3_photo(conn, profiles, vk, user_id):
-    for profile in profiles:
-        person = _get_top3_photos(vk, profile)
-        db.remove_from_temp(conn, user_id, profile['id'])
-        if person == None:
-            pass
-        else:
-            return person
-    
+def get_top3_photo(conn, vk, user_id):
+    profile = {'id': None, 'first_name': None, 'last_name': None, 'bdate': None, 'city_id': None, 'relation': None}
+    person = 'anything or anyone'
+    while person != None:
+        try:
+            _, profile['id'], profile['first_name'], profile['last_name'], profile['bdate'], profile['city_id'], profile['relation'] = db.get_profiles(conn, user_id)
+            person = _get_top3_photos(vk, profile)
+            db.remove_from_temp(conn, user_id, profile['id'])
+            if person == None:
+                person = 'go next'
+            else:
+                return person
+        except:
+            person = None
+
+
+
+
     # print(check_profile)
     # with vk_api.VkRequestsPool(vk_session) as pool:
     #     for user in user_list:
@@ -125,14 +132,7 @@ def get_top3_photo(conn, profiles, vk, user_id):
     #         pass
     # #добавляем в кортеж userlist ссылку на профиль и фотографию.
     # return user_list
-    pass
 
-
-def _try_get_photos_from_db(conn, profile_id):
-    try:
-        db.get_photos(conn, profile_id)
-    except:
-        pass
 
 
 
