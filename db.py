@@ -1,5 +1,4 @@
 # Модуль операций с SQL
-import psycopg2
 import datetime
 
 
@@ -22,7 +21,7 @@ def db_check(conn): #проверка есть ли база вообще
 def create_db(conn): #комментарии внутри
     print('- Recreate DB')
     """ Решил ограничиться двумя таблицами, чтобы СУБД занимала как можно меньше места.
-        Временная таблица должна очищаться после запроса пользователя, смены параметров запроса.
+        Временная таблица должна очищаться после каждого поискового запроса пользователя, смены параметров запроса.
         В БД хранятся только результаты (profile_id) конкретного пользователя (user_id),
         который, вероятно, ещё может вернуться, чтобы снова поискать. 
         
@@ -86,11 +85,9 @@ def remove_from_temp(conn, user_id, profile_id): #список профилей 
     conn.commit()
 
 
-def del_results(conn, user_id): #Очистка истории поисков (ну вдруг нужна? :))
+def del_results(conn, user_id): #Очистка истории поисков
     with conn.cursor() as cur:
-        cur.execute("""
-        DELETE FROM results WHERE user_id=%s;    
-        """, user_id)
+        cur.execute(f"DELETE FROM results WHERE user_id = {user_id};")
     conn.commit()
 
 
@@ -149,12 +146,3 @@ def get_profiles(conn, user_id):
         cur.execute(f"SELECT * FROM temp_list WHERE user_id = {user_id} LIMIT 1;")
         result = cur.fetchone()
     return result
-
-with psycopg2.connect(database="test", user="postgres", password="+") as conn:
-    # drop_db(conn)
-    # create_db(conn)
-    # print(get_profiles(conn, 31687273))
-
-
-    pass
-conn.close()

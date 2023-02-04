@@ -22,6 +22,8 @@ class Bot:
         self.longpoll = VkLongPoll(vk_api.VkApi(token=group_token)) #лонгполл для перехвата VkEventType
         self.vk_api = vk_api.VkApi(token=group_token).get_api() #API с токеном группы, для методов "ключом доступа группы".
         self.checklist = ['id', 'city', 'relation', 'sex', 'first_name', 'last_name', 'bdate', 'age_from', 'age_to'] #минимальный комплект для полноты анкеты пользователя
+        self.users = {}
+
 
     def start_db(self): # создаем сессию БД
         with psycopg2.connect(database=config['pgbase'], user="postgres", password=config['pgpwd']) as conn:
@@ -89,6 +91,7 @@ class Bot:
                             try:
                                 city_id = int(event.text)
                                 new_value = {'id': city_id}
+                                print("{'id': city_id}", new_value)
                             except:
                                 self.message_send(obj, 'Вы ввели недопустимые символы. Можно вводить только цифры')
                             finally:
@@ -166,8 +169,8 @@ class Bot:
                                 break
             if new_value != None:
                 new_value = {item : new_value}
+                print("{item : new_value}", new_value)
                 obj.update(new_value)
-        print(obj)
 
 
     def supplement_userdata(self, user, initial=True): # запрашиваем уточнения, если данных из профиля нехватает
@@ -199,10 +202,7 @@ class Bot:
 
     #активация "слушателей"
     def activate(self):
-        user = dict()
-        just_begin = True # для отправки клавиатуры и операций под капотом
         for event in self.bot_longpoll.listen():
-
             if event.type == VkBotEventType.MESSAGE_EVENT: #действия при нажатии кнопки
                 event_id = event.object.event_id,
                 user_id = event.object.user_id,
@@ -220,11 +220,15 @@ class Bot:
                 if func == 'Останавливаем бота':  # колхозная остановка бота надоело выключать его через Ctrl+C
                     break
             if event.type == VkBotEventType.MESSAGE_TYPING_STATE:
-                if just_begin:
-                    just_begin = False
+                    print('пользователи текущей сессии:', self.users)
+                    user = self.users.setdefault(event.obj['from_id'], dict())
+                    print('пользователи после сет дефалт:', self.users)
                     value = {'id': event.obj['from_id']}
+                    print('пользователи value:', self.users)
                     user.update(value)
+                    print('пользователи после update 1:', self.users)
                     self.keyboard_send(user, "Добро пожаловать!", switch=False)
+                    
                     checkbd = self._check_db(user)
                     if checkbd != 'error':
                         self.initial(user)
@@ -233,6 +237,7 @@ class Bot:
                         conn.close()
                         self.keyboard_send(user, "Приложение для поиска пары V-К-i-n-d-е-r готово к работе!")
                         self.message_send(user, '✅ Можете изменить параметры поиска в "Настройках".')
+
 
     def keyboard_send(self, user, msg, switch=True):
         settings = dict(one_time=False, inline=False)
@@ -269,15 +274,21 @@ class Bot:
         with self.start_db() as conn:
           try:
               db.clear_temp(conn, user['id'])
-              print('-очистили темп_лист')
           except:
               pass
         self.keyboard_send(user, "⛔ Бот остановлен. Заходите ещё! 🤗", switch=False)
 
 
     def settings(self, user):  # установка настроек поиска
-        print('Lets manage search settings')
-        self.message_send(user, 'Можно изменить возраст поиска. Что бы вы хотели изменить?')
+        self.message_send(user, f"""Информация о пользователе: {user['last_name']} {user['first_name']}
+        Город поиска: {user['city']}
+        Возраст поиска: от {user['age_from']} до {user['age_to']}
+        
+        А вот что мы умеем в настройках (список команд):
+        - возраст (изменить настройки возраста "ОТ" и "ДО")
+        - очистить (удаляет все результаты прошлых поисков)
+        Что бы вы хотели изменить?""")
+        #- город (изменить город поиска)
         for event in self.longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW:
                 if event.to_me:
@@ -286,22 +297,35 @@ class Bot:
                         user.pop('age_from', None)
                         user.pop('age_to', None)
                         break
+                    if command == 'город':
+                        user['city'].pop('id', None)
+                        print('id города удалён')
+                        user['city'].pop('title', None)
+                        print('титл города удалён')
+                        user.pop('city', None)
+                        print('город удалён')
+                        break
+                    if command == 'очистить':
+                        with self.start_db() as conn:
+                            db.del_results(conn, user['id'])
+                            self.message_send(user, 'Список результатов очищен.')
+                        conn.close()
+                        break
                     elif command == 'ничего':
-                        self.message_send(user, 'Ок. Продолжим со старыми настройками.')
                         break
                     else:
-                        self.message_send(user, 'Извините, не понял ответ. Если ничего менять не нужно, то так и напишите :). Итак, что бы вы хотели изменить?')
+                        self.message_send(user, 'Извините, ответ не распознан. Если ничего менять не нужно, то так и напишите :). Итак, что бы вы хотели изменить?')
         to_supplement = list(filter(lambda parametr: parametr not in list(user), self.checklist))
         if len(to_supplement) > 0:
             self.supplement_userdata(user, initial=False)
-            conn = self.start_db()
-            db.clear_temp(conn, user['id'])
-            manage.get_ready_to_search(conn, user, self.vku_api)
+            with self.start_db() as conn:
+                db.clear_temp(conn, user['id'])
+                manage.get_ready_to_search(conn, user, self.vku_api)
             self.message_send(user, 'Готово. Можно попробовать снова подобрать пару 😉')
-        # изменить "возраст от"
-        # изменить "возраст до"
+            conn.close()
+        else:
+            self.message_send(user, 'Ок. Продолжим со старыми настройками.')
         # изменить весы:
-        # город
         # лайки и комменты к фото
         # группы
         # книги
@@ -316,7 +340,6 @@ class Bot:
         with self.start_db() as conn:
             person = manage.get_top3_photo(conn, self.vku_api, user['id'])
             if person != None:
-                print(person)
                 url = person[0]['id']
                 attachment = tuple("photo"+str(url)+"_"+str(photo) for photo in person[1:4])
                 url = "http://vk.com/id"+str(url)
@@ -327,6 +350,7 @@ class Bot:
                 db.add_results(conn, user['id'], person)
             else:
                 self.message_send(user, f"Список кандидатов по вашим параметрам пуст, либо все результаты уже у Вас. Попробуйте осуществить поиск по другим параметрам.")
+
 
     ex = {
         'Проверка настроек и подключения': _check_db,
