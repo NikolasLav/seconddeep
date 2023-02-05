@@ -11,11 +11,11 @@ from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 import psycopg2
 import json
 import datetime
-import chardet #необходим для работы приложения с телефона
 
 
 class Bot:
     def __init__(self, user_token, group_token, group_id):
+        self.group_id = group_id
         self.vk_session = vk_api.VkApi(token=user_token, api_version='5.131') #сессия ВК
         self.vku_api = self.vk_session.get_api() #API с токеном пользователя, для методов "ключом доступа пользователя".
         self.bot_longpoll = VkBotLongPoll(vk_api.VkApi(token=group_token), group_id) #лонгполл Бота для перехвата VkBotEventType
@@ -182,7 +182,6 @@ class Bot:
         while need_to_supplement:
             to_supplement = list(filter(lambda parametr: parametr not in list(user), self.checklist))
             if ('age_from' not in to_supplement) and ('age_to' not in to_supplement):
-                print("-Сработал if ['age_from', 'age_to'] not in to_supplement")
                 try:
                     if user['age_from'] > user['age_to']:
                         user['age_from'] = None
@@ -191,7 +190,7 @@ class Bot:
                         to_supplement += ['age_from', 'age_to']
                 except:
                     pass
-            print('to_supplement:', to_supplement) #delete
+            print('- to_supplement:', to_supplement) #delete
             if len(to_supplement) > 0:
                 self.message_send(user, msg)
                 msg = 'Вы где-то ошиблись... Давайте повторим. Сердечно прошу Вас быть внимательнее :). Пожалуйста,'
@@ -214,29 +213,26 @@ class Bot:
                     user_id=user_id,
                     peer_id=peer_id,
                     event_data=event_data)
-                value = {'id': list(user_id)[0]}
                 if func in self.ex:
+                    user = self.users.setdefault(list(user_id)[0], dict())
                     self.ex[func](self, user)
                 if func == 'Останавливаем бота':  # колхозная остановка бота надоело выключать его через Ctrl+C
                     break
             if event.type == VkBotEventType.MESSAGE_TYPING_STATE:
-                    print('пользователи текущей сессии:', self.users)
+                if event.obj['from_id'] != -self.group_id: # исключить реакцию на сообщения отправляемых от имени сообщества
                     user = self.users.setdefault(event.obj['from_id'], dict())
-                    print('пользователи после сет дефалт:', self.users)
                     value = {'id': event.obj['from_id']}
-                    print('пользователи value:', self.users)
-                    user.update(value)
-                    print('пользователи после update 1:', self.users)
-                    self.keyboard_send(user, "Добро пожаловать!", switch=False)
-                    
-                    checkbd = self._check_db(user)
-                    if checkbd != 'error':
-                        self.initial(user)
-                        conn = self.start_db()
-                        manage.get_ready_to_search(conn, user, self.vku_api)
-                        conn.close()
-                        self.keyboard_send(user, "Приложение для поиска пары V-К-i-n-d-е-r готово к работе!")
-                        self.message_send(user, '✅ Можете изменить параметры поиска в "Настройках".')
+                    if len(user) == 0: # добавляем пользователя, если в текущей сессии бота он впервые
+                        user.update(value)
+                        self.keyboard_send(user, "Добро пожаловать!", switch=False)
+                        checkbd = self._check_db(user)
+                        if checkbd != 'error':
+                            self.initial(user)
+                            conn = self.start_db()
+                            manage.get_ready_to_search(conn, user, self.vku_api)
+                            conn.close()
+                            self.keyboard_send(user, "Приложение для поиска пары V-К-i-n-d-е-r готово к работе!")
+                            self.message_send(user, '✅ Можете изменить параметры поиска в "Настройках".')
 
 
     def keyboard_send(self, user, msg, switch=True):

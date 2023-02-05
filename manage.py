@@ -1,6 +1,7 @@
 # модуль взаимодействия с ВК
 import db # модуль /работы с БД
-
+import vk_api
+from config import bot_config as config
 
 def get_user_info(id, vk): #получение данных о пользователе бота
     try:
@@ -11,12 +12,6 @@ def get_user_info(id, vk): #получение данных о пользова�
 
 def get_ready_to_search(conn, user, vk): #подготовка к поисковому запросу
     quantity = 1000 #максимальная выдача
-    profiles = _get_search(conn, vk, user, quantity)
-    print(f'-в текущем запросе users.search найдено {len(profiles)} анкеты (из возможных {quantity})') #delete
-    return profiles #delete
-
-
-def _get_search(conn, vk, user, quantity):
     profiles = []
     result = []
     if user['sex'] == 1:
@@ -45,8 +40,8 @@ def _get_search(conn, vk, user, quantity):
     return result
 
 
-def get_city(vk):
-    cities = vk.database.getCities()
+def get_city(vk, query):
+    cities = vk.database.getCities(q=query)
 
 
 
@@ -89,3 +84,50 @@ def get_top3_photo(conn, vk, user_id):
                 return person
         except:
             person = None
+
+
+# def test(vk_session, persons):
+#     profiles = []
+#     with vk_api.VkRequestsPool(vk_session) as pool:
+#         for item in range(len(persons)):
+#             # photos = vk.photos.get(owner_id=profile['id'], album_id="profile", rev=1, extended=1)
+#             profiles += [pool.method('photos.get', {"owner_id":persons[item]['id'],"album_id":"profile","rev":1,"extended":1})]
+    
+#     for item in range(len(persons)):
+#         # print('profile.result')
+#         print(len(profiles[item].result['items']))
+#         # print(profile.result['items'])
+#         # try:
+#         photos = profiles[item].result['items']
+#         if len(photos) < 3: #По условию три фото, значит берем только те, в которых три фото) //Гежин Олег
+#             return None #анкета нам не подходит
+#         result = []
+#         for photo in photos:
+#             likes = photo['likes']['count']
+#             comments = photo['comments']['count']
+#             rate = likes + comments
+#             result += [[rate, photo['id']]]
+#         result.sort(reverse=True) #сортируем полученный список по убыванию суммы лайков и 
+#         photos = [] #нужен ещё один массив
+#         result = result[0:3]  #обрезаем до 3х фотографий
+#         for photo in result:
+#             photos += [photo[1]]
+#         name = f"{persons[item]['first_name']} {persons[item]['last_name']}"
+#         person = {'id': persons[item]['id'], 'name': name}
+#         print([person, *photos])
+#         # i += 1
+#             # return [person, *photos]
+#         # except:
+#             # return None
+#         #    pass
+
+
+
+# user_token = config['user_token']
+# # group_token = config['group_token']
+# # group_id = config['group_id']
+
+# vk_session = vk_api.VkApi(token=user_token, api_version='5.131')
+# profiles = [{'id': 245720141, 'first_name': 'Vasya', 'last_name': 'Ivanova', 'bdate': None, 'city_id': None, 'relation': None}, {'id': 8386755, 'first_name': 'Ivanna', 'last_name': 'Vasilieva', 'bdate': None, 'city_id': None, 'relation': None}]
+# # persons = [245720141, 8386755]
+# print(test(vk_session, profiles))
