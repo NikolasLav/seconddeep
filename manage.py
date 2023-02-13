@@ -1,7 +1,7 @@
 # модуль взаимодействия с ВК
 import db # модуль /работы с БД
-import vk_api
-from config import bot_config as config
+from vk_api import VkRequestsPool
+
 
 def get_user_info(id, vk): #получение данных о пользователе бота
     try:
@@ -11,8 +11,6 @@ def get_user_info(id, vk): #получение данных о пользова�
 
 
 def get_ready_to_search(conn, user, vk): #подготовка к поисковому запросу
-    quantity = 1000 #максимальная выдача
-    profiles = []
     result = []
     if user['sex'] == 1:
         sex = 2
@@ -22,10 +20,8 @@ def get_ready_to_search(conn, user, vk): #подготовка к поисков
         sex = 0
     quantity = 1000 #максимальное кол-во выдаваемых профилей.
     check_results = db.get_results(conn, user_id=user['id']) #проверяем выдавался ли уже результат?
-    print('-check_results', check_results)
-    request = vk.users.search(count=quantity, city_id=user['city']['id'], sex=sex, age_from=user['age_from'], age_to=user['age_to'], fields=("bdate", "city", "relation"))
-    profiles += request['items']
-    print('- users.search result:', len(profiles))
+    request = vk.users.search(count=quantity, city_id=user['city']['id'], sex=sex, age_from=user['age_from'], age_to=user['age_to'], fields=("city", "relation"))
+    profiles = request['items']
     for profile in profiles:
         try:
             if profile['id'] not in check_results:
@@ -37,97 +33,79 @@ def get_ready_to_search(conn, user, vk): #подготовка к поисков
         except:
             pass
     db.make_temp_list(conn, user['id'], result)
-    return result
 
 
-def get_city(vk, query):
-    cities = vk.database.getCities(q=query)
-
-
-
-def _get_top3_photos(vk, profile):
+def get_cities(vk, query):
     try:
-        photos = vk.photos.get(owner_id=profile['id'], album_id="profile", rev=1, extended=1)
-        photos = photos['items']
-        if len(photos) < 3: #По условию три фото, значит берем только те, в которых три фото) //Гежин Олег
-            return None #анкета нам не подходит
-        i = 0
-        result = []
-        for photo in photos:
-            likes = photo['likes']['count']
-            comments = photo['comments']['count']
-            rate = likes + comments
-            result += [[rate, photo['id']]]
-        result.sort(reverse=True) #сортируем полученный список по убыванию суммы лайков и 
-        photos = [] #нужен ещё один массив
-        result = result[0:3]  #обрезаем до 3х фотографий
-        for photo in result:
-            photos += [photo[1]]
-        name = f"{profile['first_name']} {profile['last_name']}"
-        person = {'id': profile['id'], 'name': name}
-        return [person, *photos]
+        id = int(query)
+        request = vk.database.getCitiesById(city_ids=id)
+        cities = request
     except:
-        return None #анкета нам не подходит (скорее всего это закрытая анкета)
+        request = vk.database.getCities(q=query)
+        cities = request['items']
+    return cities
 
 
-def get_top3_photo(conn, vk, user_id):
-    profile = {'id': None, 'first_name': None, 'last_name': None, 'bdate': None, 'city_id': None, 'relation': None}
-    person = 'anything or anyone'
-    while person != None:
+def rate_profiles(vk_session, persons):
+    profiles = []
+    marked = []
+    new_persons = []
+    with VkRequestsPool(vk_session) as pool:
+        for item in range(len(persons)):
+            profiles += [pool.method('photos.get', {"owner_id":persons[item]['id'],"album_id":"profile","rev":1,"extended":1})]
+            marked += [pool.method('photos.getUserPhotos', {"user_id":persons[item]['id'],"extended":1})]
+    item = 0
+    for person in persons:
         try:
-            _, profile['id'], profile['first_name'], profile['last_name'], profile['bdate'], profile['city_id'], profile['relation'] = db.get_profiles(conn, user_id)
-            person = _get_top3_photos(vk, profile)
-            db.remove_from_temp(conn, user_id, profile['id'])
-            if person == None:
-                person = 'go next'
+            photos = profiles[item].result['items']
+            if len(photos) >= 3:
+                result = []
+                result_marked = []
+                try:
+                    _marked = marked[item].result['items']
+                    for mark in _marked:
+                        likes = mark['likes']['count']
+                        comments = mark['comments']['count']
+                        rate = likes + comments
+                        result_marked += [[rate, mark['owner_id'], mark['id']]]
+                    result_marked.sort(reverse=True)
+                    _marked = []
+                    result_marked = result_marked[0:3]
+                    for photo in result_marked:
+                        _marked += [photo[1], photo[2]]
+                except:
+                    _marked = None
+                for photo in photos:
+                    likes = photo['likes']['count']
+                    comments = photo['comments']['count']
+                    rate = likes + comments
+                    result += [[rate, photo['id']]]
+                result.sort(reverse=True)
+                photos = []
+                result = result[0:3]
+                for photo in result:
+                    photos += [photo[1]]
             else:
-                return person
+                photos = None
+            name = f"{person['first_name']} {person['last_name']}"
+            person = {'id': person['id'], 'name': name, 'profile_photos': photos, 'marked_photos': _marked}
         except:
-            person = None
+            name = f"{person['first_name']} {person['last_name']}"
+            person = {'id': persons[item]['id'], 'name': name, 'profile_photos': None}   
+        item += 1
+        new_persons.append(person)
+    return new_persons
 
 
-# def test(vk_session, persons):
-#     profiles = []
-#     with vk_api.VkRequestsPool(vk_session) as pool:
-#         for item in range(len(persons)):
-#             # photos = vk.photos.get(owner_id=profile['id'], album_id="profile", rev=1, extended=1)
-#             profiles += [pool.method('photos.get', {"owner_id":persons[item]['id'],"album_id":"profile","rev":1,"extended":1})]
-    
-#     for item in range(len(persons)):
-#         # print('profile.result')
-#         print(len(profiles[item].result['items']))
-#         # print(profile.result['items'])
-#         # try:
-#         photos = profiles[item].result['items']
-#         if len(photos) < 3: #По условию три фото, значит берем только те, в которых три фото) //Гежин Олег
-#             return None #анкета нам не подходит
-#         result = []
-#         for photo in photos:
-#             likes = photo['likes']['count']
-#             comments = photo['comments']['count']
-#             rate = likes + comments
-#             result += [[rate, photo['id']]]
-#         result.sort(reverse=True) #сортируем полученный список по убыванию суммы лайков и 
-#         photos = [] #нужен ещё один массив
-#         result = result[0:3]  #обрезаем до 3х фотографий
-#         for photo in result:
-#             photos += [photo[1]]
-#         name = f"{persons[item]['first_name']} {persons[item]['last_name']}"
-#         person = {'id': persons[item]['id'], 'name': name}
-#         print([person, *photos])
-#         # i += 1
-#             # return [person, *photos]
-#         # except:
-#             # return None
-#         #    pass
-
-
-
-# user_token = config['user_token']
-# # group_token = config['group_token']
-# # group_id = config['group_id']
-
-# vk_session = vk_api.VkApi(token=user_token, api_version='5.131')
-# profiles = [{'id': 245720141, 'first_name': 'Vasya', 'last_name': 'Ivanova', 'bdate': None, 'city_id': None, 'relation': None}, {'id': 8386755, 'first_name': 'Ivanna', 'last_name': 'Vasilieva', 'bdate': None, 'city_id': None, 'relation': None}]
-# # persons = [245720141, 8386755]
-# print(test(vk_session, profiles))
+def prepare_results(conn, user_id, vk_session):
+    person = db.get_results(conn, user_id=user_id, not_seen=True)
+    if person == []:
+        while person == []:
+            profiles = db.get_profiles(conn, user_id)
+            if len(profiles) > 0:
+                profiles = rate_profiles(vk_session, profiles)
+                if len(profiles) > 0:
+                    db.add_results(conn, user_id, profiles)
+                    person = db.get_results(conn, user_id=user_id, not_seen=True)
+            elif len(profiles) == 0:
+                break

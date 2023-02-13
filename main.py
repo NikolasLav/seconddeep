@@ -1,12 +1,8 @@
-import bot
-from config import bot_config as config
+from bot import Bot
 
 
 def main():
-    user_token = config['user_token']
-    group_token = config['group_token']
-    group_id = config['group_id']
-    bot_start = bot.Bot(user_token, group_token, group_id)
+    bot_start = Bot()
     bot_start.activate()
 
     

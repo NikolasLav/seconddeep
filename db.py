@@ -34,7 +34,7 @@ def create_db(conn): #комментарии внутри
         profile_id integer NOT NULL,
         first_name varchar(32) NOT NULL,
         last_name varchar(32) NOT NULL,
-        bdate date,
+        city_id integer,
         relation integer);
         """)
     #4 Таблица выданных результатов (история выдачей)
@@ -44,10 +44,13 @@ def create_db(conn): #комментарии внутри
         profile_id integer NOT NULL,
 		profile_name varchar(70) NOT NULL,
         photo_ids varchar(40) NOT NULL,
+        marked_photos varchar(80),
+        seen boolean NOT NULL,
         banned boolean NOT NULL,
-        favorit boolean NOT NULL,
+        favorite boolean NOT NULL,
         result_time timestamp NOT NULL);
         """)
+        conn.commit()
 
 
 def drop_db(conn):
@@ -60,46 +63,55 @@ def drop_db(conn):
         conn.commit()
 
 
-def add_results(conn, user_id, profile): #список профилей не должен быть пустым! проверить перед отправкой
+def add_results(conn, user_id, profiles): #список профилей не должен быть пустым! проверить перед отправкой
     now = datetime.datetime.today().strftime("%Y-%m-%d %H:%M:%S")
-    photo_ids = f'{str(profile[1])},{str(profile[2])},{str(profile[3])}'
-    if profile[0]['id'] not in get_results(conn, user_id=user_id):
-        with conn.cursor() as cur:
-            cur.execute("""INSERT INTO results (
-                user_id, 
-                profile_id, 
-                profile_name, 
-                photo_ids, 
-                banned, 
-                favorite, 
-                result_time)
-                VALUES (%s, %s, %s, %s, %s, %s, %s);""",
-                (user_id, profile[0]['id'], profile[0]['name'], photo_ids, False, False, now))
-        conn.commit()
+    checklist = get_results(conn, user_id=user_id)
+    for profile in profiles:
+        remove_from_temp(conn, user_id, profile['id'])
+        if profile['profile_photos'] != None:
+            photo_ids = ','.join(str(photo) for photo in profile['profile_photos'])
+            if (profile['marked_photos'] == None) or (profile['marked_photos'] == ''):
+                marked_photos = None
+            else:
+                marked_photos = ','.join(str(photo) for photo in profile['marked_photos'])
+            if profile['id'] not in checklist:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("""INSERT INTO results (
+                            user_id,
+                            profile_id,
+                            profile_name,
+                            photo_ids,
+                            marked_photos,
+                            seen,
+                            banned,
+                            favorite,
+                            result_time)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);""",
+                            (user_id, profile['id'], profile['name'], photo_ids, marked_photos, False, False, False, now))
+                        conn.commit()
+                except:
+                    pass
 
 
 def remove_from_temp(conn, user_id, profile_id): #список профилей не должен быть пустым! проверить перед отправкой
-    #добавить возможность удаления пачками
     with conn.cursor() as cur:
         cur.execute(f"DELETE FROM temp_list WHERE profile_id = {profile_id} AND user_id = {user_id};")
     conn.commit()
 
 
-def del_results(conn, user_id): #Очистка истории поисков
+def del_results(conn, user_id, temp=False): #Очистка истории поисков
+    if temp:
+        appendix = " AND seen = FALSE"
+    else:
+        appendix = ""
     with conn.cursor() as cur:
-        cur.execute(f"DELETE FROM results WHERE user_id = {user_id};")
+        cur.execute(f"DELETE FROM results WHERE user_id = {user_id}{appendix};")
     conn.commit()
 
 
 def make_temp_list(conn, user_id, profiles):
     for profile in profiles:
-        try:
-            if len(profile['bdate']) > 5:
-                bdate = datetime.datetime.strptime(profile['bdate'], '%d.%m.%Y').date()
-            else:
-                bdate = datetime.datetime.strptime(profile['bdate'], '%d.%m').date()
-        except:
-            bdate = None
         try: 
             city_id = profile['city']['id']
         except:
@@ -110,9 +122,9 @@ def make_temp_list(conn, user_id, profiles):
             relation = 0
         with conn.cursor() as cur:
             cur.execute("""
-            INSERT INTO temp_list (user_id, profile_id, first_name, last_name, bdate, city_id, relation)
-            VALUES (%s, %s, %s, %s, %s, %s, %s);
-            """, (user_id, profile['id'], profile['first_name'], profile['last_name'], bdate, city_id, relation))
+            INSERT INTO temp_list (user_id, profile_id, first_name, last_name, city_id, relation)
+            VALUES (%s, %s, %s, %s, %s, %s);
+            """, (user_id, profile['id'], profile['first_name'], profile['last_name'], city_id, relation))
     conn.commit()
     with conn.cursor() as cur:
         cur.execute(f"SELECT * FROM temp_list WHERE user_id = {user_id}")
@@ -125,24 +137,65 @@ def clear_temp(conn, user_id):
     conn.commit()
 
 
-def get_results(conn, profile_id=None, user_id=None):
+def get_results(conn, profile_id=None, user_id=None, favorite=None, banned=None, not_seen=None):
+    appendix = ''
+    if favorite:
+        appendix += ' AND favorite = true'
+    if banned:
+        appendix += ' AND banned = true'
+    if not_seen:
+        appendix += ' AND seen = false LIMIT 1'
     if user_id == None:
-        SQL = f"SELECT * FROM results WHERE profile_id = {profile_id};"
+        SQL = f"SELECT * FROM results WHERE profile_id = {profile_id}{appendix};"
     elif profile_id == None:
-        SQL = f"SELECT profile_id FROM results WHERE user_id = {user_id};"
+        SQL = f"SELECT * FROM results WHERE user_id = {user_id}{appendix};"
     else:
-        SQL = f"SELECT * FROM results WHERE profile_id = {profile_id} AND user_id = {user_id};"
-    with conn.cursor() as cur:
-        cur.execute(SQL)
-        result = []
-        for item in cur.fetchall():
-            result += [*item]
-
-    return result
+        SQL = f"SELECT * FROM results WHERE profile_id = {profile_id} AND user_id = {user_id}{appendix};"
+    result = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(SQL)
+            if favorite or banned:
+                for item in cur.fetchall():
+                    result += [[*item]]
+            else:
+                for item in cur.fetchall():
+                    result += [*item]
+        return result
+    except:
+        return None
     
 
+def update_results(conn, profile_id, user_id, favorite=None, banned=None, seen=None):
+    appendix = ''
+    if favorite:
+        appendix += 'favorite = true '
+    elif favorite == False:
+        appendix += 'favorite = false '
+    if banned:
+        appendix += 'banned = true '
+    elif banned == False:
+        appendix += 'banned = false '
+    if seen:
+        appendix += 'seen = true '
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"UPDATE results SET {appendix} WHERE profile_id = {profile_id} AND user_id = {user_id};")
+        conn.commit()
+    except:
+        pass
+
+
 def get_profiles(conn, user_id):
-    with conn.cursor() as cur:
-        cur.execute(f"SELECT * FROM temp_list WHERE user_id = {user_id} LIMIT 1;")
-        result = cur.fetchone()
-    return result
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT profile_id, first_name, last_name, relation FROM temp_list WHERE user_id = {user_id} LIMIT 10;")
+            results_temp = cur.fetchall()
+            results = []
+            keys = ["id", "first_name", "last_name", "relation"]                
+            for result in results_temp:
+                profile = dict(zip(keys, result))
+                results.append(profile)
+        return results
+    except:
+        return None

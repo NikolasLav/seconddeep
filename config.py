@@ -9,5 +9,3 @@ bot_config = {
 	'pgbase' : env_vars['pgbase'], #название базы данных в Postgres к которой подключаемся
 	'pgpwd' : env_vars['pgpwd'] #пароль
 }
-
-# print(bot_config)
