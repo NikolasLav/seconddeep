@@ -28,9 +28,11 @@ class Bot:
 
     """ Инициализация """
     def __init__(self) -> None:
+        # минимальный комплект для полноты анкеты пользователя
         self.checklist = ['id', 'city', 'relation', 'sex', 'first_name', 'last_name',
-                          'age_from', 'age_to']  # минимальный комплект для полноты анкеты пользователя
-        self.users = {}  # пробовал многопользовательский режим - работает вроде :)
+                          'age_from', 'age_to']
+        # многопользовательский режим - работает вроде :)
+        self.users = {}
 
     """ Проверка сессии БД """
     def _check_db(self, user) -> any:
@@ -58,7 +60,7 @@ class Bot:
         return check
 
     """ Инициализируем пользователя """
-    def initial(self, user) -> None:
+    def _initial(self, user) -> None:
         userdata = get_user_info(user['id'], vku_session.get_api())
         if userdata is None:
             message_send(
@@ -70,134 +72,15 @@ class Bot:
             userdata_check = True
             # дополняем недостающую информацию в цикле
             while userdata_check:
-                userdata_check, user = self.supplement_userdata(user)
-
-    """ Подпрограмма для ввода и обработки/проверки уточнений """
-    def _supplement(self, items, obj) -> None:
-        for item in items:
-            new_value = None
-            if item == 'first_name':
-                message_send(obj, "уточните имя: ")
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            new_value = event.text.capitalize()
-                            break
-            elif item == 'last_name':
-                message_send(obj, "уточните фамилию: ")
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            new_value = event.text.capitalize()
-                            break
-            elif item == 'city':
-                message_send(
-                    obj, 'уточните название города, или его ID (если знаете): ')
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            try:
-                                cities = get_cities(
-                                    vku_session.get_api(), event.text.lower())
-                                if len(cities) > 1:
-                                    message_send(
-                                        obj, 'Вот несколько подходящих городов:')
-                                    for city in cities[0:5]:
-                                        try:
-                                            message_send(
-                                                obj, f"(ID={city['id']}). {city['title']} ({city['region']}, {city['area']})")
-                                        except:
-                                            message_send(
-                                                obj, f"(ID={city['id']}). {city['title']}")
-                                    city = cities
-                                    message_send(obj, """Пока мы автоматически выбрали наиболее подходящий вариант.
-                                    Чтобы выбрать точнее - повторите поиск, но укажите уже ID.""")
-                                else:
-                                    city = cities
-                                new_value = {
-                                    'id': city[0]['id'], 'title': city[0]['title']}
-                                message_send(
-                                    obj, f"В настройки поиска сохранён город: (ID={city[0]['id']}) {city[0]['title']}")
-                            except:
-                                message_send(
-                                    obj, 'Мы не нашли такого города. Попробуйте изменить запрос или поиск по ID.')
-                            finally:
-                                break
-            elif item == 'relation':
-                message_send(obj, f"""уточните тип отношений:
-                                            (для справки. введите соответствующую цифру
-                                            1 — не женат (не замужем),
-                                            2 — встречаюсь,
-                                            3 — помолвлен(-а),
-                                            4 — женат (замужем),
-                                            5 — всё сложно,
-                                            6 — в активном поиске,
-                                            7 — влюблен(-а),
-                                            8 — в гражданском браке.): """)
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            try:
-                                new_value = int(event.text)
-                                if new_value not in range(0, 9):
-                                    message_send(
-                                        obj, 'Вы ввели недопустимые символы. Смотрите подсказку.')
-                                    new_value = None
-                            except:
-                                message_send(
-                                    obj, 'Вы ввели недопустимые символы. Смотрите подсказку.')
-                            finally:
-                                break
-            elif item == 'sex':
-                message_send(obj, "уточните пол (введите М или Ж): ")
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            new_value = event.text.lower()
-                            break
-                if new_value in ('м', 'ж'):
-                    if new_value == 'м':
-                        new_value = 2
-                    elif new_value == 'ж':
-                        new_value = 1
-                else:
-                    message_send(obj, 'Вы ввели недопустимые символы.')
-                    new_value = None
-            elif item == 'age_from':
-                message_send(obj, 'укажите "ОТ" какого возраста ищем пару: ')
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            try:
-                                new_value = int(event.text)
-                            except:
-                                message_send(
-                                    obj, 'Вы ввели недопустимые символы. Можно вводить только цифры')
-                            finally:
-                                break
-            elif item == 'age_to':
-                message_send(obj, 'укажите "ДО" какого возраста ищем пару: ')
-                for event in longpoll.listen():
-                    if event.type == VkEventType.MESSAGE_NEW:
-                        if event.to_me:
-                            try:
-                                new_value = int(event.text)
-                            except:
-                                message_send(
-                                    obj, 'Вы ввели недопустимые символы. Можно вводить только цифры')
-                            finally:
-                                break
-            if new_value != None:
-                new_value = {item: new_value}
-                obj.update(new_value)
+                userdata_check, user = self._supplement_userdata(user)
 
     """ Запрашиваем уточнения, если данных из профиля нехватает """
-    def supplement_userdata(self, user, initial=True) -> tuple[bool, any]:
+    def _supplement_userdata(self, user, initial=True) -> tuple[bool, any]:
         need_to_supplement = True
         if initial:
             msg = "Для начала работы не хватает данных. Пожалуйста,"
         else:
-            msg = "Хорошо, изменим данные:"
+            msg = "Давайте изменим данные. Пожалуйста,"
         while need_to_supplement:
             to_supplement = list(
                 filter(lambda parametr: parametr not in list(user), self.checklist))
@@ -214,7 +97,8 @@ class Bot:
             if len(to_supplement) > 0:
                 message_send(user, msg)
                 msg = 'Вы где-то ошиблись... Давайте повторим. Сердечно прошу Вас быть внимательнее :). Пожалуйста,'
-                self._supplement(to_supplement, user)
+                for item in to_supplement:
+                    user.update(supplement_dict[item](item,user))
             else:
                 need_to_supplement = False
         return need_to_supplement, user
@@ -252,7 +136,7 @@ class Bot:
                         keyboard_send(user, "Добро пожаловать!", switch=False)
                         checkbd = self._check_db(user)
                         if checkbd != 'error':
-                            self.initial(user)
+                            self._initial(user)
                             keyboard_send(
                                 user, "Приложение для поиска пары V_К_i_n_d_е_r готово к работе!")
                             message_send(user,
@@ -320,12 +204,12 @@ class Bot:
                         break
                     else:
                         message_send(
-                            user, 'Извините, ответ не распознан. Если ничего менять не нужно, то так и напишите :). Итак, что бы вы хотели изменить?')
+                            user, 'Извините, ответ не распознан. Если НИЧЕГО менять не нужно, то так и напишите :). Итак, что бы вы хотели изменить?')
         to_supplement = list(
             filter(lambda parametr: parametr not in list(user), self.checklist))
         # при изменении критических параметров поиска нужно перезапустить
         if len(to_supplement) > 0:
-            self.supplement_userdata(user, initial=False)
+            self._supplement_userdata(user, initial=False)
             with start_db() as conn:
                 """ 
                 1) подготовить/очистить базу временных данных
@@ -340,7 +224,6 @@ class Bot:
             conn.close()
         else:
             keyboard_send(user, 'Ок. Настройки поиска остались прежними.')
-        # blacklist
         return
 
     """ Вывод результата на экран пользователя """
@@ -361,20 +244,17 @@ class Bot:
                     pass
                 else:
                     marked = person[4].split(',')
-                    attachments = []
+                    favorite_attachments = []
                     urls = []
                     for item in range(0, len(marked), 2):
                         attachment = f'photo{marked[item]}_{marked[item+1]}'
-                        attachments += [attachment]
-                        urls += ["http://vk.com/"+attachment]
+                        favorite_attachments.append(attachment)
+                        urls.append("http://vk.com/"+attachment)
                     urls = ('\n').join(urls)
-                    # пришлось переприсвоить, иначе иногда дублируются фото, что странно
-                    attachments = (',').join(attachments)
                     message_send(user, f"""Фотографии с отметками:
                     (в виде фото отображаются только те, что доступны боту;
                     по ссылкам можете перейти на оригинал.)
-                    {urls}""", attachments)
-                    print('- проверка attachments', attachments)
+                    {urls}""", (',').join(favorite_attachments))
                 # записать выдачу
                 db.update_results(
                     conn, profile_id=person[1], user_id=user['id'], seen=True)
@@ -399,7 +279,7 @@ class Bot:
             else:
                 message_send(user, "Пока ещё пуст.")
 
-    """ Словарь callback-функций """
+    """ Словарь callback-функций (реакция на кнопки) """
     ex = {
         'stop': {'func': stop, 'description': 'Останавливаем бота'},
         'settings': {'func': settings, 'description': 'Меняем настройки пользователя'},
@@ -466,3 +346,151 @@ def message_send(user, msg, attachment=None) -> None:  # сообщения
 """ Сессия БД """
 def start_db() -> any:  # создаем сессию БД
     return psycopg2.connect(database=config['pgbase'], user="postgres", password=config['pgpwd'])
+
+
+""" Уточняем имя или фамилию """
+def name_sup(item, user, longpoll) -> object:
+    new_value = None
+    while new_value is None:
+        if item == 'first_name':
+            name_type = 'своё имя'
+        else:
+            name_type = 'фамилию'
+        message_send(user, f"уточните {name_type}: ")
+        for event in longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW:
+                if event.to_me:
+                    new_value = event.text.capitalize()
+                    break
+    new_value = {item: new_value}
+    return new_value
+
+
+""" Уточняем город """
+def city_sup(item, user, longpoll) -> object:
+    new_value = None
+    while new_value is None:
+        message_send(
+            user, 'уточните название города, или его ID (если знаете): ')
+        for event in longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW:
+                if event.to_me:
+                    try:
+                        cities = get_cities(
+                            vku_session.get_api(), event.text.lower())
+                        if len(cities) > 1:
+                            message_send(user, 'Вот несколько подходящих городов:')
+                            for city in cities[0:5]:
+                                try:
+                                    message_send(
+                                        user, f"(ID={city['id']}). {city['title']} ({city['region']}, {city['area']})")
+                                except:
+                                    message_send(
+                                        user, f"(ID={city['id']}). {city['title']}")
+                            city = cities
+                            message_send(user,
+                            """Пока мы автоматически выбрали наиболее подходящий вариант.
+                            Чтобы выбрать точнее - повторите поиск, но укажите уже ID.""")
+                        else:
+                            city = cities
+                        new_value = {
+                            'id': city[0]['id'], 'title': city[0]['title']}
+                        message_send(
+                            user, f"В настройки поиска сохранён город: (ID={city[0]['id']}) {city[0]['title']}")
+                    except:
+                        message_send(
+                            user, 'Мы не нашли такого города. Попробуйте изменить запрос или поиск по ID.')
+                    finally:
+                        break
+    new_value = {item: new_value}
+    return new_value
+
+
+""" Уточняем тип отношений """
+def rel_sup(item, user, longpoll) -> object:
+    new_value = None
+    while new_value is None:
+        message_send(user, 
+            f"""уточните тип отношений:
+            (для справки. введите соответствующую цифру
+            1 — не женат (не замужем),
+            2 — встречаюсь,
+            3 — помолвлен(-а),
+            4 — женат (замужем),
+            5 — всё сложно,
+            6 — в активном поиске,
+            7 — влюблен(-а),
+            8 — в гражданском браке)""")
+        for event in longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW:
+                if event.to_me:
+                    try:
+                        new_value = int(event.text)
+                        if new_value not in range(0, 9):
+                            message_send(
+                                user, 'Вы ввели недопустимые символы. Смотрите подсказку.')
+                            new_value = None
+                    except:
+                        message_send(
+                            user, 'Вы ввели недопустимые символы. Смотрите подсказку.')
+                    finally:
+                        break
+    new_value = {item: new_value}
+    return new_value
+
+
+""" Уточняем принадлежность к полу """
+def sex_sup(item, user, longpoll) -> object:
+    new_value = None
+    while new_value is None:
+        message_send(user, "уточните пол (введите М или Ж): ")
+        for event in longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW:
+                if event.to_me:
+                    new_value = event.text.lower()
+                    break
+        if new_value in ('м', 'ж'):
+            if new_value == 'м':
+                new_value = 2
+            elif new_value == 'ж':
+                new_value = 1
+        else:
+            message_send(user, 'Вы ввели недопустимые символы.')
+            new_value = None
+    new_value = {item: new_value}
+    return new_value
+
+
+""" Уточняем возраст поиска """
+def age_sup(item, user, longpoll) -> object:
+    new_value = None
+    while new_value is None:
+        if item == 'age_from':
+            age_type = 'ОТ'
+        else:
+            age_type = 'ДО'
+        message_send(user, f'укажите "{age_type}" какого возраста ищем пару: ')
+        for event in longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW:
+                if event.to_me:
+                    try:
+                        new_value = int(event.text)
+                    except:
+                        message_send(
+                            user, 'Вы ввели недопустимые символы. Можно вводить только цифры')
+                    finally:
+                        break
+    new_value = {item: new_value}
+    return new_value
+
+
+""" Словарик для уточнений """
+supplement_dict = {
+    'city': city_sup,
+    'relation': rel_sup,
+    'sex': sex_sup,
+    'first_name': name_sup,
+    'last_name': name_sup,
+    'age_from': age_sup,
+    'age_to': age_sup,
+}

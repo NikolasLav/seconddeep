@@ -1,8 +1,6 @@
 """ Модуль операций с SQL """
 
 """ Проверка готовности таблиц """
-
-
 def db_check(conn) -> any:
     result = 'error'
     try:
@@ -21,8 +19,6 @@ def db_check(conn) -> any:
 
 
 """ Создание таблиц, комментарии внутри """
-
-
 def create_db(conn) -> None:
     print('- Recreate DB')
     """
@@ -59,8 +55,6 @@ def create_db(conn) -> None:
 
 
 """ Удаление таблиц """
-
-
 def drop_db(conn) -> None:
     if db_check(conn) == 'check':
         with conn.cursor() as cur:
@@ -72,8 +66,6 @@ def drop_db(conn) -> None:
 
 
 """ Промежуточная таблица с результатами users.search """
-
-
 def make_temp_list(conn, user_id, profiles) -> None:
     for profile in profiles:
         try:
@@ -96,8 +88,6 @@ def make_temp_list(conn, user_id, profiles) -> None:
 
 
 """ Взять 10 пользователей из промежуточной таблицы """
-
-
 def get_profiles(conn, user_id) -> (list | None):
     try:
         with conn.cursor() as cur:
@@ -115,21 +105,20 @@ def get_profiles(conn, user_id) -> (list | None):
 
 
 """ Удалить запись/записи из промежуточной таблицы """
-
-
 def remove_from_temp(conn, user_id, profile_id=None) -> None:
-    if profile_id is None:
-        SQL = f"DELETE FROM temp_list WHERE user_id = {user_id};"
-    else:
-        SQL = f"DELETE FROM temp_list WHERE user_id = {user_id} AND profile_id = {profile_id};"
-    with conn.cursor() as cur:
-        cur.execute(SQL)
-    conn.commit()
+    try:
+        if profile_id is None:
+            SQL = f"DELETE FROM temp_list WHERE user_id = {user_id};"
+        else:
+            SQL = f"DELETE FROM temp_list WHERE user_id = {user_id} AND profile_id = {profile_id};"
+        with conn.cursor() as cur:
+            cur.execute(SQL)
+        conn.commit()
+    except:
+        print('-- Ошибка удаления. параметры:', user_id, profile_id)
 
 
 """ Результат: добавить """
-
-
 def add_results(conn, user_id, profiles) -> None:
     checklist = get_results(conn, user_id=user_id)
     for profile in profiles:
@@ -162,8 +151,6 @@ def add_results(conn, user_id, profiles) -> None:
 
 
 """ Результат: удалить """
-
-
 def del_results(conn, user_id, temp=False) -> None:
     if temp:
         appendix = " AND seen = FALSE"
@@ -176,8 +163,6 @@ def del_results(conn, user_id, temp=False) -> None:
 
 
 """ Результат: взять """
-
-
 def get_results(
     conn,
     profile_id=None,
@@ -215,8 +200,6 @@ def get_results(
 
 
 """ Результат: обновить """
-
-
 def update_results(conn, profile_id, user_id, favorite=None, banned=None, seen=None) -> None:
     appendix = ''
     if favorite:

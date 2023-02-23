@@ -3,8 +3,6 @@ from vk_api import VkRequestsPool
 from db import add_results, get_results, get_profiles, make_temp_list
 
 """ Получение данных о пользователе бота """
-
-
 def get_user_info(id, vk) -> any:
     try:
         return vk.users.get(user_ids=id, fields=("sex", "city", "relation"))[0]
@@ -13,8 +11,6 @@ def get_user_info(id, vk) -> any:
 
 
 """ Агрегация функций подготовки к поисковому запросу """
-
-
 def get_ready_to_search(conn, user, vk_session) -> None:
     result = []
     if user['sex'] == 1:
@@ -24,7 +20,6 @@ def get_ready_to_search(conn, user, vk_session) -> None:
     else:
         sex = 0
     quantity = 1000
-    # проверяем выдавался ли уже результат?
     check_results = get_results(conn, user_id=user['id'])
     request = vk_session.get_api().users.search(
         count=quantity,
@@ -36,7 +31,9 @@ def get_ready_to_search(conn, user, vk_session) -> None:
     profiles = request['items']
     for profile in profiles:
         try:
+            # есть ли найденный профиль среди прошлых результатов?
             if profile['id'] not in check_results:
+                # соответствует ли город поиска?
                 if profile['city']['id'] == user['city']['id']:
                     profile.pop('track_code')
                     profile.pop('can_access_closed')
@@ -49,8 +46,6 @@ def get_ready_to_search(conn, user, vk_session) -> None:
 
 
 """ Работа с городами """
-
-
 def get_cities(vk, query) -> any:
     try:
         id = int(query)
@@ -63,8 +58,6 @@ def get_cities(vk, query) -> any:
 
 
 """ Оценка профилей """
-
-
 def rate_profiles(vk_session, persons) -> list:
     profiles = []
     marked = []
@@ -121,8 +114,6 @@ def rate_profiles(vk_session, persons) -> list:
 
 
 """ Подготовка для вывода под капотом """
-
-
 def prepare_results(conn, user_id, vk_session) -> None:
     person = get_results(conn, user_id=user_id, not_seen=True)
     if person == []:
