@@ -1,32 +1,22 @@
 """ Бот, и команды для бота """
 from config import bot_config as config
 import vk_api
-from vk_api.longpoll import VkLongPoll, VkEventType
-from vk_api.utils import get_random_id, json
+from vk_api.utils import json
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
-from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 import psycopg2
-import time
-from manage import get_ready_to_search as prepare, get_cities, get_user_info, prepare_results
+from manage import get_ready_to_search as prepare, get_user_info, prepare_results, message_send, keyboard_send, change_settings, Supplement
 import db
 
-user_token = config['user_token']
+
 group_token = config['group_token']
 group_id = config['group_id']
-
-vku_session = vk_api.VkApi(token=user_token, api_version='5.131')
 vkg_api = vk_api.VkApi(token=group_token).get_api()
-
-# Лонгполл Бота для перехвата VkBotEventType
 bot_longpoll = VkBotLongPoll(vk_api.VkApi(token=group_token), group_id)
-# Лонгполл для перехвата VkEventType
-longpoll = VkLongPoll(vk_api.VkApi(token=group_token))
 
 
 """ Бот """
 class Bot:
 
-    """ Инициализация """
     def __init__(self) -> None:
         # минимальный комплект для полноты анкеты пользователя
         self.checklist = ['id', 'city', 'relation', 'sex', 'first_name', 'last_name',
@@ -61,7 +51,7 @@ class Bot:
 
     """ Инициализируем пользователя """
     def _initial(self, user) -> None:
-        userdata = get_user_info(user['id'], vku_session.get_api())
+        userdata = get_user_info(user['id'])
         if userdata is None:
             message_send(
                 user, '⛔ Проблемы инициализации пользователя. Проверьте настроки access_token пользователя.')
@@ -142,7 +132,7 @@ class Bot:
                             message_send(user,
                                          '✅ Можете изменить параметры поиска в "Настройках".')
                             with start_db() as conn:
-                                prepare(conn, user, vku_session)
+                                prepare(conn, user)
             if event.type == 'like_add':
                 try:
                     db.update_results(
@@ -170,47 +160,22 @@ class Bot:
 
     """ настройки поиска """
     def settings(self, user) -> None:
-        message_send(user, f"""Информация о пользователе: {user['last_name']} {user['first_name']}
-Город поиска: {user['city']['title']}
-Возраст поиска: от {user['age_from']} до {user['age_to']}""")
-        keyboard_send(
-            user, "А вот что мы умеем в настройках (список команд):", False)
-        message_send(user, f"""- возраст (изменить настройки возраста "ОТ" и "ДО")
-- город (изменить или уточнить город поиска)
-- очистить (удаляет все результаты прошлых поисков)
-Что бы вы хотели изменить?""")
-        # - город (изменить город поиска)
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                if event.to_me:
-                    command = event.text.lower()
-                    if command == 'возраст':
-                        user.pop('age_from', None)
-                        user.pop('age_to', None)
-                        break
-                    if command == 'город':
-                        user['city'].pop('id', None)
-                        user['city'].pop('title', None)
-                        user.pop('city', None)
-                        break
-                    if command == 'очистить':
-                        with start_db() as conn:
-                            db.del_results(conn, user['id'])
-                            message_send(user, 'Список результатов очищен.')
-                            prepare(conn, user, vku_session)
-                        conn.close()
-                        break
-                    elif command == 'ничего':
-                        break
-                    else:
-                        message_send(
-                            user, 'Извините, ответ не распознан. Если НИЧЕГО менять не нужно, то так и напишите :). Итак, что бы вы хотели изменить?')
-        to_supplement = list(
-            filter(lambda parametr: parametr not in list(user), self.checklist))
-        # при изменении критических параметров поиска нужно перезапустить
-        if len(to_supplement) > 0:
-            self._supplement_userdata(user, initial=False)
-            with start_db() as conn:
+        with start_db() as conn:
+            message_send(user, f"""Информация о пользователе: {user['last_name']} {user['first_name']}
+    Город поиска: {user['city']['title']}
+    Возраст поиска: от {user['age_from']} до {user['age_to']}""")
+            keyboard_send(
+                user, "А вот что мы умеем в настройках (список команд):", False)
+            message_send(user, f"""- возраст (изменить настройки возраста "ОТ" и "ДО")
+    - город (изменить или уточнить город поиска)
+    - очистить (удаляет все результаты прошлых поисков)
+    Что бы вы хотели изменить?""")
+            user = change_settings(conn, user)
+            to_supplement = list(
+                filter(lambda parametr: parametr not in list(user), self.checklist))
+            # при изменении критических параметров поиска нужно перезапустить
+            if len(to_supplement) > 0:
+                self._supplement_userdata(user, initial=False)
                 """ 
                 1) подготовить/очистить базу временных данных
                 2) удалить результаты, что ещё не выдавались
@@ -218,13 +183,12 @@ class Bot:
                 """
                 db.remove_from_temp(conn, user['id'], profile_id=None)
                 db.del_results(conn, user['id'], temp=True)
-                prepare(conn, user, vku_session)
-            keyboard_send(
-                user, 'Готово. Можно попробовать снова подобрать пару 😉')
-            conn.close()
-        else:
-            keyboard_send(user, 'Ок. Настройки поиска остались прежними.')
-        return
+                prepare(conn, user)
+                keyboard_send(
+                    user, 'Готово. Можно попробовать снова подобрать пару 😉')
+            else:
+                keyboard_send(user, 'Ок. Настройки поиска остались прежними.')
+
 
     """ Вывод результата на экран пользователя """
     def search(self, user) -> None:
@@ -259,7 +223,7 @@ class Bot:
                 db.update_results(
                     conn, profile_id=person[1], user_id=user['id'], seen=True)
                 # подготовить новую, пока пользователь оценивает выдачу
-                prepare_results(conn, user['id'], vku_session)
+                prepare_results(conn, user['id'])
             else:
                 message_send(
                     user, f"Список кандидатов по вашим параметрам пуст, либо все результаты уже у Вас. Попробуйте осуществить поиск по другим параметрам.")
@@ -288,209 +252,19 @@ class Bot:
     }
 
 
-""" Отправка клавиатур """
-def keyboard_send(user, msg, switch=True) -> None:  # клавиатуры
-    settings = dict(one_time=False, inline=False)
-    keyboard = VkKeyboard(**settings)
-    if switch:
-        keyboard.add_callback_button(label='Поиск пары', color=VkKeyboardColor.PRIMARY,
-                                     payload={"type": "show_snackbar", "text": "search"})
-        keyboard.add_line()
-        keyboard.add_callback_button(label='Настройки', color=VkKeyboardColor.PRIMARY,
-                                     payload={"type": "show_snackbar", "text": "settings"})
-        keyboard.add_callback_button(label='Избранные', color=VkKeyboardColor.PRIMARY,
-                                     payload={"type": "show_snackbar", "text": "show_favirits"})
-        # Кнопка для остановки бота
-        keyboard.add_line()
-        keyboard.add_callback_button(label='Остановить сервер', color=VkKeyboardColor.SECONDARY,
-                                     payload={"type": "show_snackbar", "text": "stop"})
-    attempt = 0
-    while True and attempt < 3:  # 3 попытки на успешную отправку клавиатуры, на случай сбоя работы ВК
-        try:
-            if switch:
-                vkg_api.messages.send(user_id=user['id'], title=msg, message='&#13;',  random_id=get_random_id(
-                ), keyboard=keyboard.get_keyboard())
-            else:
-                vkg_api.messages.send(user_id=user['id'], title=msg, message='&#13;',  random_id=get_random_id(
-                ), keyboard=keyboard.get_empty_keyboard())
-            break
-        except:
-            attempt += 1
-            # надо было логгер изучить, конечно, но не успел.
-            print(
-                user['id'], f"Ошибка отправки клавиатуры. Повторная попытка №{attempt}.")
-            time.sleep(1)
-
-
-""" Отправка сообщений """
-def message_send(user, msg, attachment=None) -> None:  # сообщения
-    attempt = 0
-    while True and attempt < 3:  # 3 попытки на успешную отправку сообщения, на случай сбоя работы ВК
-        try:
-            if attachment == None:
-                vkg_api.messages.send(
-                    user_id=user['id'], message=msg,  random_id=get_random_id())
-                break
-            else:
-                vkg_api.messages.send(
-                    user_id=user['id'], message=msg,  random_id=get_random_id(), attachment=attachment)
-                break
-        except:
-            attempt += 1
-            # надо было логгер изучить, конечно, но не успел.
-            print(
-                user['id'], f"Ошибка отправки сообщения. Повторная попытка №{attempt}.")
-            time.sleep(1)
-
-
 """ Сессия БД """
 def start_db() -> any:  # создаем сессию БД
     return psycopg2.connect(database=config['pgbase'], user="postgres", password=config['pgpwd'])
 
 
-""" Уточняем имя или фамилию """
-def name_sup(item, user, longpoll) -> object:
-    new_value = None
-    while new_value is None:
-        if item == 'first_name':
-            name_type = 'своё имя'
-        else:
-            name_type = 'фамилию'
-        message_send(user, f"уточните {name_type}: ")
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                if event.to_me:
-                    new_value = event.text.capitalize()
-                    break
-    new_value = {item: new_value}
-    return new_value
-
-
-""" Уточняем город """
-def city_sup(item, user, longpoll) -> object:
-    new_value = None
-    while new_value is None:
-        message_send(
-            user, 'уточните название города, или его ID (если знаете): ')
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                if event.to_me:
-                    try:
-                        cities = get_cities(
-                            vku_session.get_api(), event.text.lower())
-                        if len(cities) > 1:
-                            message_send(user, 'Вот несколько подходящих городов:')
-                            for city in cities[0:5]:
-                                try:
-                                    message_send(
-                                        user, f"(ID={city['id']}). {city['title']} ({city['region']}, {city['area']})")
-                                except:
-                                    message_send(
-                                        user, f"(ID={city['id']}). {city['title']}")
-                            city = cities
-                            message_send(user,
-                            """Пока мы автоматически выбрали наиболее подходящий вариант.
-                            Чтобы выбрать точнее - повторите поиск, но укажите уже ID.""")
-                        else:
-                            city = cities
-                        new_value = {
-                            'id': city[0]['id'], 'title': city[0]['title']}
-                        message_send(
-                            user, f"В настройки поиска сохранён город: (ID={city[0]['id']}) {city[0]['title']}")
-                    except:
-                        message_send(
-                            user, 'Мы не нашли такого города. Попробуйте изменить запрос или поиск по ID.')
-                    finally:
-                        break
-    new_value = {item: new_value}
-    return new_value
-
-
-""" Уточняем тип отношений """
-def rel_sup(item, user, longpoll) -> object:
-    new_value = None
-    while new_value is None:
-        message_send(user, 
-            f"""уточните тип отношений:
-            (для справки. введите соответствующую цифру
-            1 — не женат (не замужем),
-            2 — встречаюсь,
-            3 — помолвлен(-а),
-            4 — женат (замужем),
-            5 — всё сложно,
-            6 — в активном поиске,
-            7 — влюблен(-а),
-            8 — в гражданском браке)""")
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                if event.to_me:
-                    try:
-                        new_value = int(event.text)
-                        if new_value not in range(0, 9):
-                            message_send(
-                                user, 'Вы ввели недопустимые символы. Смотрите подсказку.')
-                            new_value = None
-                    except:
-                        message_send(
-                            user, 'Вы ввели недопустимые символы. Смотрите подсказку.')
-                    finally:
-                        break
-    new_value = {item: new_value}
-    return new_value
-
-
-""" Уточняем принадлежность к полу """
-def sex_sup(item, user, longpoll) -> object:
-    new_value = None
-    while new_value is None:
-        message_send(user, "уточните пол (введите М или Ж): ")
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                if event.to_me:
-                    new_value = event.text.lower()
-                    break
-        if new_value in ('м', 'ж'):
-            if new_value == 'м':
-                new_value = 2
-            elif new_value == 'ж':
-                new_value = 1
-        else:
-            message_send(user, 'Вы ввели недопустимые символы.')
-            new_value = None
-    new_value = {item: new_value}
-    return new_value
-
-
-""" Уточняем возраст поиска """
-def age_sup(item, user, longpoll) -> object:
-    new_value = None
-    while new_value is None:
-        if item == 'age_from':
-            age_type = 'ОТ'
-        else:
-            age_type = 'ДО'
-        message_send(user, f'укажите "{age_type}" какого возраста ищем пару: ')
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW:
-                if event.to_me:
-                    try:
-                        new_value = int(event.text)
-                    except:
-                        message_send(
-                            user, 'Вы ввели недопустимые символы. Можно вводить только цифры')
-                    finally:
-                        break
-    new_value = {item: new_value}
-    return new_value
-
-
 """ Словарик для уточнений """
+us = Supplement #user supplement
 supplement_dict = {
-    'city': city_sup,
-    'relation': rel_sup,
-    'sex': sex_sup,
-    'first_name': name_sup,
-    'last_name': name_sup,
-    'age_from': age_sup,
-    'age_to': age_sup,
+    'city': us.city,
+    'relation': us.rel,
+    'sex': us.sex,
+    'first_name': us.name,
+    'last_name': us.name,
+    'age_from': us.age,
+    'age_to': us.age
 }
