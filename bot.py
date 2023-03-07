@@ -133,6 +133,7 @@ class Bot:
                                          '✅ Можете изменить параметры поиска в "Настройках".')
                             with start_db() as conn:
                                 prepare(conn, user)
+            # Поставить лайк = добавить в избранное
             if event.type == 'like_add':
                 try:
                     db.update_results(
@@ -166,7 +167,7 @@ class Bot:
     Возраст поиска: от {user['age_from']} до {user['age_to']}""")
             keyboard_send(
                 user, "А вот что мы умеем в настройках (список команд):", False)
-            message_send(user, f"""- возраст (изменить настройки возраста "ОТ" и "ДО")
+            message_send(user, """- возраст (изменить настройки возраста "ОТ" и "ДО")
     - город (изменить или уточнить город поиска)
     - очистить (удаляет все результаты прошлых поисков)
     Что бы вы хотели изменить?""")
@@ -189,7 +190,6 @@ class Bot:
             else:
                 keyboard_send(user, 'Ок. Настройки поиска остались прежними.')
 
-
     """ Вывод результата на экран пользователя """
     def search(self, user) -> None:
         message_send(user, "Секундочку...")
@@ -201,7 +201,8 @@ class Bot:
                 photos = person[3].split(',')
                 attachment = f'photo{id}_'+f',photo{id}_'.join(photos)
                 url = "http://vk.com/id"+str(id)
-                message_send(user, f"""{person[2]} {url}
+                message_send(user, 
+                f"""{person[2]} {url}
                 Чтобы добавить в ИЗБРАННОЕ оставьте ❤ лайк на любой фотографии (доступно только для текущего результата поиска).
                 """, attachment)
                 if person[4] is None or person[4] == '':
@@ -226,7 +227,7 @@ class Bot:
                 prepare_results(conn, user['id'])
             else:
                 message_send(
-                    user, f"Список кандидатов по вашим параметрам пуст, либо все результаты уже у Вас. Попробуйте осуществить поиск по другим параметрам.")
+                    user, "Список кандидатов по вашим параметрам пуст, либо все результаты уже у Вас. Попробуйте осуществить поиск по другим параметрам.")
 
     """ Вывод списка ИЗБРАННЫХ """
     def show_favorite(self, user) -> None:

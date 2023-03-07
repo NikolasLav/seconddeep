@@ -82,9 +82,6 @@ def make_temp_list(conn, user_id, profiles) -> None:
             VALUES (%s, %s, %s, %s, %s, %s);
             """, (user_id, profile['id'], profile['first_name'], profile['last_name'], city_id, relation))
     conn.commit()
-    with conn.cursor() as cur:
-        cur.execute(f"SELECT * FROM temp_list WHERE user_id = {user_id}")
-        profiles = cur.fetchall()
 
 
 """ Взять 10 пользователей из промежуточной таблицы """

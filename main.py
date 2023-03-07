@@ -1,6 +1,7 @@
 """ Запуск программы """
 from bot import Bot
 
+
 """ главная часть """
 def main() -> None:
     bot_start = Bot()
